@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 
 
 def get_args_parser():
+    # Parse tuple for dim_scales and input_shape
+    def parse_int_tuple(s):
+        try:
+            # Remove brackets, spaces, convert to integers
+            return tuple(map(int, s.strip().strip('()').replace(' ', '').split(',')))
+        except ValueError:
+            raise argparse.ArgumentTypeError("Tuple must be a string of integers separated by commas, like '1, 2, 3'.")
+
+    # Parse tuple for split_ratio    
+    def parse_float_tuple(s):
+        try:
+            return tuple(map(float, s.strip().strip('()').replace(' ', '').split(',')))
+        except ValueError:
+            raise argparse.ArgumentTypeError("Tuple must be a string of numbers separated by commas, like '0.7, 0.1, 0.2'.")
+
     parser = argparse.ArgumentParser("Image dataset training", add_help=False)
 
     # Optimizer parameters
@@ -25,7 +40,7 @@ def get_args_parser():
     parser.add_argument("--ema_decays", default=[0.99995, 0.9996], nargs="+", type=float, help="Extra EMA decay rates.")
 
     # Dataset parameters
-    parser.add_argument("--dataset", default='cifar10', type=str, choices=['cifar10', 'mnist'], help="Dataset to use.")
+    parser.add_argument("--dataset", default='cifar10', type=str, choices=['cifar10', 'mnist', 'shrimp'], help="Dataset to use.")
     parser.add_argument("--data_path", default="./data", type=str, help="data root folder with train, val and test subfolders")
 
     parser.add_argument("--output_dir", default="./output_dir", help="path where to save, empty for no saving")
@@ -69,5 +84,23 @@ def get_args_parser():
     # Debugging settings
     parser.add_argument("--test_run", action="store_true", help="Only run one batch of training and evaluation.")
     parser.add_argument("--not_compile", action="store_false", dest="compile", default=True, help="Disable compilation.")
+
+    # shrimp
+    parser.add_argument("--sat-files-path", default="", type=str, help="Path to satellite image data directory.")
+    parser.add_argument("--radar-files-path", default="", type=str, help="Path to radar reflectivity image data directory.")
+    parser.add_argument("--start-date", default="", type=str, help="Start date for dataset selection (e.g., 20210101).")
+    parser.add_argument("--end-date", default="", type=str, help="End date for dataset selection (e.g., 20210430).")
+    parser.add_argument("--max-folders", default=None, type=int, help="Maximum number of folders (days) to load. Use None to load all.")
+    parser.add_argument("--history-frames", default=0, type=int, help="Number of past frames to use as input (set as 0 to use the current frame only).")
+    parser.add_argument("--future-frame", default=0, type=int, help="Predict one future frame.")
+    parser.add_argument("--refresh-rate", default=10, type=int, help="Time interval (in minutes) between frames.")
+    parser.add_argument("--coverage-threshold", default=0.05, type=float, help="Minimum radar reflectivity coverage threshold for selecting a valid frame (0.0 to 1.0).")
+    #parser.add_argument("--seed", default=96, type=int, help="Random seed for dataset buiding.")
+    parser.add_argument("--block-size", default=100, type=int, help="Number of sat-radar pairs to include per data segment.")
+    parser.add_argument("--split-ratio", default=(0.7, 0.1, 0.2), type=parse_float_tuple, help="Train/val/test split ratio (three floats in [0,1] that sum <= 1.0), e.g. 0.7, 0.1, 0.2.")
+    parser.add_argument("--fixed-test-days", default=None, type=lambda s: s.split(","), help="Comma-separated list of fixed test folders.")
+
+    parser.add_argument("--sat-dim", default=4, type=int, help="Number of sat channels.")
+    parser.add_argument("--retrieve-dataset", action='store_true', help="Use saved dataset filelist instead of rebuilding.")
 
     return parser

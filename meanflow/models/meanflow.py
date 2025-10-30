@@ -33,7 +33,7 @@ class MeanFlow(nn.Module):
         for i in range(len(self.ema_decays)):
             update_ema_net(self.net, self._modules[f"net_ema{i + 1}"], num_updates)
 
-    def forward_with_loss(self, x, aug_cond):
+    def forward_with_loss(self, x, cond, aug_cond):
 
         device = x.device
         e = torch.randn_like(x).to(device)
@@ -46,7 +46,12 @@ class MeanFlow(nn.Module):
         # define network function
         def u_func(z, t, r):
             h = t - r
-            return self.net(z, (t.view(-1), h.view(-1)), aug_cond)
+            # Add sat condition if provided
+            if cond is not None:
+                z_cond = torch.cat([z, cond], dim=1)
+            else:
+                z_cond = z
+            return self.net(z_cond, (t.view(-1), h.view(-1)), aug_cond)
 
         dtdt = torch.ones_like(t)
         drdt = torch.zeros_like(r)
@@ -67,13 +72,18 @@ class MeanFlow(nn.Module):
         
         return loss
     
-    def sample(self, samples_shape, net=None, device=None):
+    def sample(self, cond, samples_shape, net=None, device=None):
         net = net if net is not None else self.net_ema                
 
         e = torch.randn(samples_shape, dtype=torch.float32, device=device)
         z_1 = e
         t = torch.ones(samples_shape[0], device=device)
         r = torch.zeros(samples_shape[0], device=device)
-        u = net(z_1, (t, t - r), aug_cond=None)
+        # Add sat condition if provided
+        if cond is not None:
+            z_1_cond = torch.cat([z_1, cond], dim=1)
+        else:
+            z_1_cond = z_1
+        u = net(z_1_cond, (t, t - r), aug_cond=None)
         z_0 = z_1 - u
         return z_0

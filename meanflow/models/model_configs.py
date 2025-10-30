@@ -11,6 +11,7 @@ from models.unet import SongUNet
 
 MODEL_ARCHS = {
     "unet": SongUNet,
+    "unet_shrimp": SongUNet,
 }
 
 MODEL_CONFIGS = {
@@ -24,11 +25,25 @@ MODEL_CONFIGS = {
         "encoder_type": "standard",
         "decoder_type": "standard",
     },
+    "unet_shrimp": {
+        "img_resolution": 128,
+        "in_channels": 5,
+        "out_channels": 1,
+        "model_channels": 32,
+        "channel_mult_noise": 2,
+        "resample_filter": [1, 3, 3, 1],
+        "channel_mult": [1, 2, 2, 2],
+        "encoder_type": "standard",
+        "decoder_type": "standard",
+    },
 }
 
 
 def instantiate_model(args) -> nn.Module:
-    architechture = args.arch
+    if args.dataset == 'shrimp':
+        architechture = args.arch+"_shrimp"
+    else:
+        architechture = args.arch
     assert (
         architechture in MODEL_CONFIGS
     ), f"Model architecture {architechture} is missing its config."

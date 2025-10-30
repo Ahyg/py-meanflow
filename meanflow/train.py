@@ -31,6 +31,10 @@ import models.rng as rng
 
 from torch.utils.tensorboard import SummaryWriter
 
+# shrimp import
+from models.DatasetBuilder import DatasetBuilder
+from models.dataset import SatelliteDataset
+
 torch.set_float32_matmul_precision('high')
 
 logger = logging.getLogger(__name__)
@@ -65,6 +69,45 @@ def get_data_loader(args, is_for_fid):
             download=True,
             transform=transforms,
         )
+    elif args.dataset == "shrimp":  # 4x128x128 shrimp dataset
+        # Prepare dataset
+        datasetbuilder = DatasetBuilder(
+            sat_path=args.sat_files_path,
+            radar_path=args.radar_files_path,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            max_folders=args.max_folders,
+            history_frames=args.history_frames,
+            future_frame=args.future_frame,
+            refresh_rate=args.refresh_rate,
+            coverage_threshold=args.coverage_threshold,
+            seed=args.seed
+        )
+        dataset_pkl_name = "dataset_filelist.pkl"
+        dataset_pkl_path = os.path.join(args.output_dir, dataset_pkl_name)
+        if args.retrieve_dataset:
+            train_files, val_files, _ = datasetbuilder.load_filelist(dataset_pkl_path)
+            logger.info(f"Loaded existing dataset from {dataset_pkl_path}")
+        else:
+            train_files, val_files, _ = datasetbuilder.build_filelist_by_blocks(
+                save_dir=args.output_dir,
+                file_name=dataset_pkl_name,
+                block_size=args.block_size,
+                split_ratio=args.split_ratio,
+            )
+            logger.info(f"Built new dataset to {dataset_pkl_path}")
+        train_dataset = SatelliteDataset(files=train_files, sat_dim=args.sat_dim, transform=None)
+        #val_dataset = SatelliteDataset(files=val_files, in_dim=args.in_dim, transform=None)
+        logger.info(f"[Train Dataset] Files: {len(train_files)}, Dataset length: {len(train_dataset)}")
+        #logger.info(f"[Val Dataset]   Files: {len(val_files)}, Dataset length: {len(val_dataset)}")
+        dataset = train_dataset
+        #train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
+        #use_validation = len(val_dataset) > 0
+        #if use_validation:
+        #    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+        #else:
+        #    val_dataloader = None
+        #    logger.warning("⚠️ Validation set is empty. Skipping validation during training.")
     else:
         raise NotImplementedError(f"Unsupported dataset {args.dataset}")
 
@@ -204,7 +247,8 @@ def main(args):
                 epoch=epoch,
                 log_writer=log_writer,
                 args=args,
-                meters=meters
+                meters=meters,
+                dataset=args.dataset,
             )
 
         if args.output_dir and (

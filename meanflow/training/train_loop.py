@@ -84,6 +84,7 @@ def train_one_epoch(
     log_writer: Any,
     args: argparse.Namespace,
     meters: dict[str, MeanMetric],
+    dataset: str = "cifar10",  # add shrimp dataset name
 ):
     gc.collect()
     model.train(True)
@@ -95,22 +96,30 @@ def train_one_epoch(
     model_without_ddp = model if not isinstance(model, DistributedDataParallel) else model.module
 
     tic = time.time()
-    for data_iter_step, (samples, index) in enumerate(data_loader):
+    for data_iter_step, batch_data in enumerate(data_loader):
         steps = data_iter_step + len(data_loader) * epoch  # global step
 
         optimizer.zero_grad()            
         if data_iter_step > 0 and args.test_run:
             break
+        if dataset == "shrimp":
+            imgs, masks, *_ = batch_data
+            imgs = imgs.permute(0, 3, 1, 2).to(args.device, non_blocking=True)
+            masks = masks.permute(0, 3, 1, 2).to(args.device, non_blocking=True)
+            samples, aug_cond = rng.augment_with_rng_control(augment_pipe, masks, args.seed, steps) if args.use_edm_aug else (masks, None)
+            conds, _ = rng.augment_with_rng_control(augment_pipe, imgs, args.seed, steps) if args.use_edm_aug else (imgs, None)
+        else:
+            samples, index = batch_data
+            samples = samples.to(device, non_blocking=True)
+            samples = samples * 2.0 - 1.0
+            conds = None
 
-        samples = samples.to(device, non_blocking=True)
-        samples = samples * 2.0 - 1.0
-
-        samples, aug_cond = rng.augment_with_rng_control(augment_pipe, samples, args.seed, steps) if args.use_edm_aug else (samples, None)
+            samples, aug_cond = rng.augment_with_rng_control(augment_pipe, samples, args.seed, steps) if args.use_edm_aug else (samples, None)
 
         if args.compile and epoch == args.start_epoch and data_iter_step == 0:
             logging.info(f"Compiling the first train step, this may take a while...")
         
-        loss = rng.train_step_with_rng_control(compiled_train_step, model_without_ddp, steps, args.seed, samples, aug_cond)
+        loss = rng.train_step_with_rng_control(compiled_train_step, model_without_ddp, steps, args.seed, samples, conds, aug_cond)
         if args.compile:
             assert get_compiled_counts() > 0, "Compilation not triggered."
 
