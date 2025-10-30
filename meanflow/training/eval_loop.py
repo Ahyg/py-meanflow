@@ -40,9 +40,14 @@ def eval_model(
     if args.distributed:
         data_loader.sampler.set_epoch(0)
 
-    assert args.fid_samples <= len(data_loader.dataset), (
-        f"In this interface, dataset size ({len(data_loader.dataset)}) must be larger than FID samples ({args.fid_samples})."
-    )
+    dataset_size = len(data_loader.dataset)
+    if args.fid_samples > dataset_size:
+        logger.warning(
+            f"FID samples ({args.fid_samples}) > dataset size ({dataset_size}). "
+            f"Adjusting fid_samples to {dataset_size}."
+        )
+        args.fid_samples = dataset_size
+    
     fid_samples = math.ceil(args.fid_samples / distributed_mode.get_world_size())
 
     fid_metric = FrechetInceptionDistance(normalize=True).to(device=device, non_blocking=True)
@@ -52,9 +57,29 @@ def eval_model(
     if args.output_dir:
         (Path(args.output_dir) / "snapshots").mkdir(parents=True, exist_ok=True)
 
-    for data_iter_step, (samples, _) in enumerate(data_loader):
-        samples = samples.to(device, non_blocking=True)
-        fid_metric.update(samples, real=True)  # real is always on the entire dataset
+    for data_iter_step, batch_data in enumerate(data_loader):
+        # Handle different dataset formats
+        if args.dataset == "shrimp":
+            imgs, masks, *_ = batch_data
+            imgs = imgs.permute(0, 3, 1, 2).to(device, non_blocking=True)
+            masks = masks.permute(0, 3, 1, 2).to(device, non_blocking=True)
+            
+            # Normalize to [-1, 1]
+            imgs = imgs * 2.0 - 1.0
+            masks = masks * 2.0 - 1.0
+            
+            samples = masks  # Target (radar)
+            cond = imgs      # Condition (satellite)
+        else:
+            samples, _ = batch_data
+            samples = samples.to(device, non_blocking=True)
+            cond = None
+        
+        # Update FID with real samples (convert back to [0, 1] for FID)
+        real_samples_for_fid = torch.clamp(samples * 0.5 + 0.5, min=0.0, max=1.0)
+        if samples.shape[1] == 1:  # Grayscale -> RGB for FID
+            real_samples_for_fid = real_samples_for_fid.repeat(1, 3, 1, 1)
+        fid_metric.update(real_samples_for_fid, real=True)
 
         if num_synthetic < fid_samples:          
             model_without_ddp = model.module if isinstance(model, DistributedDataParallel) else model  
@@ -63,7 +88,12 @@ def eval_model(
                 #per node and per step seed
                 torch.manual_seed(rng.fold_in(args.seed, rng.get_rank(), data_iter_step, epoch))
                 with torch.amp.autocast('cuda', enabled=False), torch.no_grad():
-                    synthetic_samples = model_without_ddp.sample(samples_shape=samples.shape, net=net_ema, device=device)
+                    synthetic_samples = model_without_ddp.sample(
+                        cond=cond, 
+                        samples_shape=samples.shape, 
+                        net=net_ema, 
+                        device=device
+                    )
             torch.cuda.synchronize()
 
             # Scaling to [0, 1] from [-1, 1]
@@ -71,8 +101,11 @@ def eval_model(
                 synthetic_samples * 0.5 + 0.5, min=0.0, max=1.0
             )
             synthetic_samples = torch.floor(synthetic_samples * 255)
-
             synthetic_samples = synthetic_samples.to(torch.float32) / 255.0
+            
+            # Convert grayscale to RGB for FID metric
+            if synthetic_samples.shape[1] == 1:
+                synthetic_samples = synthetic_samples.repeat(1, 3, 1, 1)
 
             if num_synthetic + synthetic_samples.shape[0] > fid_samples:
                 synthetic_samples = synthetic_samples[: fid_samples - num_synthetic]

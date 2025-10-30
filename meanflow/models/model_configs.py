@@ -27,7 +27,7 @@ MODEL_CONFIGS = {
     },
     "unet_shrimp": {
         "img_resolution": 128,
-        "in_channels": 5,
+        "in_channels": 4,  # radar(1) + sat(3)
         "out_channels": 1,
         "model_channels": 32,
         "channel_mult_noise": 2,
@@ -48,9 +48,13 @@ def instantiate_model(args) -> nn.Module:
         architechture in MODEL_CONFIGS
     ), f"Model architecture {architechture} is missing its config."
 
-    configs = MODEL_CONFIGS[architechture]
+    configs = MODEL_CONFIGS[architechture].copy()  # Create a copy to avoid modifying the original
     configs['dropout'] = args.dropout
-    arch = MODEL_ARCHS[architechture]
+    
+    # Get base architecture name
+    base_arch = args.arch
+    arch = MODEL_ARCHS[base_arch]
+    
     if args.use_edm_aug:
         configs['augment_dim'] = 6
     model = MeanFlow(arch=arch, net_configs=configs, args=args)
