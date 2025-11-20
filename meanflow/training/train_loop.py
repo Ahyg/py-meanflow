@@ -107,8 +107,10 @@ def train_one_epoch(
             imgs = imgs.permute(0, 3, 1, 2).to(args.device, non_blocking=True)
             masks = masks.permute(0, 3, 1, 2).to(args.device, non_blocking=True)
             combineds = torch.cat([imgs, masks], dim=1)
+            #combineds = masks # !!! tmp
             combineds, aug_cond = rng.augment_with_rng_control(augment_pipe, combineds, args.seed, steps) if args.use_edm_aug else (combineds, None)
             #conds, _ = rng.augment_with_rng_control(augment_pipe, imgs, args.seed, steps) if args.use_edm_aug else (imgs, None)
+            #samples = combineds # !!! tmp
             samples = combineds[:, -1:, :, :]  # radars
             conds = combineds[:, :-1, :, :]    # sats
         else:

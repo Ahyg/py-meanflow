@@ -27,7 +27,7 @@ MODEL_CONFIGS = {
     },
     "unet_shrimp": {
         "img_resolution": 128,
-        "in_channels": 4,  # radar(1) + sat(3)
+        "in_channels": 5,  # radar(1) + sat(4)
         "out_channels": 1,
         "model_channels": 32,
         "channel_mult_noise": 2,
